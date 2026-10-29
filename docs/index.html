@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NetCap Planner – AI Network Capacity Forecasting</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📡</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#eef2f5; --panel:#ffffff; --ink:#0f2233; --muted:#5b6f80; --line:#d5dee6;
+  --fc:#1f5bff; --band:rgba(31,91,255,.14); --hist:#0f2233; --cap:#c0392b; --warn:#d98200; --ok:#1a8a5b;
+  --font:'Schibsted Grotesk',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){--bg:#0b1620;--panel:#122230;--ink:#e6eef5;--muted:#8fa4b5;--line:#243747;--fc:#5b8bff;--band:rgba(91,139,255,.18);--hist:#e6eef5;--cap:#ff6b5b;--warn:#f0a830;--ok:#3cc68a}
+}
+:root[data-theme="dark"]{--bg:#0b1620;--panel:#122230;--ink:#e6eef5;--muted:#8fa4b5;--line:#243747;--fc:#5b8bff;--band:rgba(91,139,255,.18);--hist:#e6eef5;--cap:#ff6b5b;--warn:#f0a830;--ok:#3cc68a}
+*{box-sizing:border-box}
+html{color-scheme:light dark}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 60px}
+header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:22px}
+h1{font-size:clamp(1.8rem,4vw,2.8rem);line-height:1.05;margin:0 0 8px;font-weight:800;letter-spacing:-.02em}
+header p{margin:0;max-width:60ch;color:var(--muted)}
+button,select,input{font:inherit;color:inherit}
+.btn{background:var(--ink);color:var(--bg);border:0;border-radius:6px;padding:9px 16px;font-weight:700;cursor:pointer}
+.btn.alt{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.btn:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid var(--fc);outline-offset:2px}
+.layout{display:grid;grid-template-columns:290px 1fr;gap:18px}
+@media(max-width:900px){.layout{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px}
+.panel h2{font-size:1rem;margin:0 0 12px}
+label{display:block;font-size:.85rem;color:var(--muted);margin:12px 0 4px}
+select,input[type=number]{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
+input[type=range]{width:100%}
+.row{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.status{font-size:.82rem;color:var(--muted);margin-top:12px}
+.stage{position:relative}
+canvas{width:100%;height:380px;display:block}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:.82rem;color:var(--muted);margin-top:8px}
+.legend i{display:inline-block;width:18px;height:3px;vertical-align:middle;margin-right:6px;border-radius:2px}
+#tip{position:absolute;pointer-events:none;background:var(--ink);color:var(--bg);font-size:.78rem;padding:5px 8px;border-radius:5px;display:none;white-space:nowrap}
+.verdict{margin-top:18px;border-left:6px solid var(--ok);padding:14px 18px}
+.verdict.warn{border-left-color:var(--warn)} .verdict.bad{border-left-color:var(--cap)}
+.verdict h2{font-size:1.25rem;margin:0 0 4px}
+.verdict p{margin:0;color:var(--muted)}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:14px}
+.metric{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px}
+.metric b{display:block;font-size:1.55rem;letter-spacing:-.02em}
+.metric span{font-size:.82rem;color:var(--muted)}
+table{width:100%;border-collapse:collapse;font-size:.9rem}
+th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:500}
+.scroll{overflow-x:auto}
+details{margin-top:18px}
+summary{cursor:pointer;font-weight:700}
+details p,details li{color:var(--muted);max-width:75ch}
+footer{margin-top:30px;font-size:.82rem;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div>
+    <h1>NetCap Planner</h1>
+    <p>Forecast bandwidth demand, see when a link runs out of headroom, and get the date to order more capacity. Runs entirely in your browser.</p>
+  </div>
+  <button class="btn alt" id="theme" type="button">Switch theme</button>
+</header>
+
+<div class="layout">
+  <aside class="panel">
+    <h2>Inputs</h2>
+    <label for="src">Traffic data</label>
+    <select id="src">
+      <option value="gen">Sample: enterprise WAN link</option>
+      <option value="gen2">Sample: fast-growing ISP backhaul</option>
+      <option value="csv">My CSV file</option>
+    </select>
+    <input id="file" type="file" accept=".csv,.txt" hidden>
+    <div class="row"><button class="btn alt" id="pick" type="button" hidden>Choose CSV</button></div>
+
+    <label for="cap">Installed link capacity (Gbps)</label>
+    <input id="cap" type="number" min="1" value="100">
+
+    <label for="thr">Upgrade trigger: <b id="thrv">80</b>% utilisation</label>
+    <input id="thr" type="range" min="50" max="95" value="80">
+
+    <label for="hor">Forecast horizon: <b id="horv">180</b> days</label>
+    <input id="hor" type="range" min="30" max="365" step="15" value="180">
+
+    <label for="lead">Procurement lead time (days)</label>
+    <input id="lead" type="number" min="0" value="45">
+
+    <label for="scn">Growth scenario</label>
+    <select id="scn">
+      <option value="0">Baseline (current trend)</option>
+      <option value="0.03">New service launch (+3% / month)</option>
+      <option value="0.08">Major migration (+8% / month)</option>
+    </select>
+    <div class="status" id="status"></div>
+    <details><summary>CSV format</summary>
+      <p>One row per day. Either <code>date,gbps</code> (e.g. <code>2026-01-15,42.3</code>) or just one column of daily peak Gbps. At least 28 days.</p>
+    </details>
+  </aside>
+
+  <main>
+    <div class="panel">
+      <div class="stage"><canvas id="chart" role="img" aria-label="Bandwidth history and forecast chart"></canvas><div id="tip"></div></div>
+      <div class="legend">
+        <span><i style="background:var(--hist)"></i>Daily peak (history)</span>
+        <span><i style="background:var(--fc)"></i>Forecast</span>
+        <span><i style="background:var(--band);height:10px"></i>90% range</span>
+        <span><i style="background:var(--warn)"></i>Upgrade trigger</span>
+        <span><i style="background:var(--cap)"></i>Installed capacity</span>
+      </div>
+    </div>
+
+    <div class="panel verdict" id="verdict"></div>
+    <div class="metrics" id="metrics"></div>
+
+    <div class="panel" style="margin-top:14px">
+      <h2>Expansion plan</h2>
+      <div class="scroll"><table id="plan"></table></div>
+    </div>
+
+    <details class="panel">
+      <summary>How the forecast works</summary>
+      <ul>
+        <li>The model is Holt-Winters triple exponential smoothing with a 7-day season, which captures level, trend and the weekday/weekend cycle.</li>
+        <li>Smoothing parameters are chosen by grid search, minimising one-step-ahead error on your history.</li>
+        <li>Accuracy (MAPE) comes from a backtest: the model is fitted without the last 14 days, then forecasts them.</li>
+        <li>The 90% range widens with the forecast distance, based on the model's own residuals.</li>
+        <li>Growth scenarios compound an extra monthly increase on top of the baseline forecast.</li>
+        <li>Recommended capacity is the next standard link size that keeps the forecast peak at or below 70% utilisation.</li>
+      </ul>
+    </details>
+  </main>
+</div>
+<footer>Forecasts are statistical estimates. Validate against business plans before placing orders.</footer>
+</div>
+
+<script>
+(function(){
+"use strict";
+var $=function(id){return document.getElementById(id)};
+var M=7, DAY=86400000, TIERS=[1,10,25,40,100,200,400,800,1600];
+var data=null; // {dates:[ms], y:[Gbps]}
+var view=null;
+
+/* ---------- data ---------- */
+function rng(seed){return function(){seed=(seed*1664525+1013904223)%4294967296;return seed/4294967296}}
+function generate(kind){
+  var r=rng(kind==="gen"?7:21), n=210, base=kind==="gen"?34:120, slope=kind==="gen"?0.11:0.42;
+  var wk=[1,1.03,1.04,1.02,1.0,0.78,0.72];
+  var end=new Date(); end.setHours(0,0,0,0);
+  var start=end.getTime()-(n-1)*DAY, d=[], y=[];
+  for(var i=0;i<n;i++){
+    var t=start+i*DAY, dow=new Date(t).getDay(); // Sun=0
+    var f=wk[(dow+6)%7];
+    var v=(base+slope*i)*f*(1+(r()-.5)*.08);
+    if(r()<.02) v*=1.18; // occasional spike
+    d.push(t); y.push(+v.toFixed(2));
+  }
+  return {dates:d,y:y};
+}
+function parseCSV(text){
+  var rows=text.split(/\r?\n/).map(function(s){return s.trim()}).filter(Boolean);
+  var y=[], d=[];
+  rows.forEach(function(line){
+    var c=line.split(/[,;\t]/).map(function(s){return s.trim()});
+    var val=parseFloat(c[c.length-1]);
+    if(isNaN(val)) return;
+    var t=c.length>1?Date.parse(c[0]):NaN;
+    y.push(val); d.push(t);
+  });
+  if(y.length<28) throw new Error("Need at least 28 daily values (found "+y.length+").");
+  var ok=d.every(function(t){return !isNaN(t)});
+  if(!ok){
+    var end=new Date(); end.setHours(0,0,0,0);
+    d=y.map(function(_,i){return end.getTime()-(y.length-1-i)*DAY});
+  }
+  return {dates:d,y:y};
+}
+
+/* ---------- Holt-Winters (additive) ---------- */
+function hwInit(y){
+  var a=0,b=0,i;
+  for(i=0;i<M;i++){a+=y[i];b+=y[i+M]}
+  a/=M;b/=M;
+  var s=[];for(i=0;i<M;i++)s.push(y[i]-a);
+  return {l:a,t:(b-a)/M,s:s};
+}
+function hwRun(y,al,be,ga){
+  var st=hwInit(y), l=st.l, t=st.t, s=st.s.slice(), sse=0, res=[], i;
+  for(i=0;i<y.length;i++){
+    var si=s[i%M], f=l+t+si, e=y[i]-f;
+    if(i>=M){sse+=e*e;res.push(e)}
+    var ln=al*(y[i]-si)+(1-al)*(l+t);
+    t=be*(ln-l)+(1-be)*t;
+    s[i%M]=ga*(y[i]-ln)+(1-ga)*si;
+    l=ln;
+  }
+  return {l:l,t:t,s:s,n:y.length,sse:sse,res:res};
+}
+function hwFit(y){
+  var best=null, A=[.1,.2,.3,.5,.7], B=[.01,.03,.06,.1], G=[.05,.15,.3,.5];
+  A.forEach(function(a){B.forEach(function(b){G.forEach(function(g){
+    var m=hwRun(y,a,b,g);
+    if(!best||m.sse<best.sse){best=m;best.p=[a,b,g]}
+  })})});
+  return best;
+}
+function hwForecast(m,h){
+  var out=[];
+  for(var k=1;k<=h;k++) out.push(m.l+k*m.t+m.s[(m.n+k-1)%M]);
+  return out;
+}
+function mape(a,f){var s=0;for(var i=0;i<a.length;i++)s+=Math.abs((a[i]-f[i])/a[i]);return s/a.length*100}
+
+/* ---------- analysis ---------- */
+function analyse(){
+  var y=data.y, h=+$("hor").value, cap=+$("cap").value, thr=+$("thr").value/100;
+  var lead=+$("lead").value, g=+$("scn").value;
+  var model=hwFit(y);
+  var hold=14, bt=hwFit(y.slice(0,y.length-hold));
+  var acc=mape(y.slice(-hold),hwForecast(bt,hold));
+  var base=hwForecast(model,h);
+  var sd=Math.sqrt(model.sse/model.res.length);
+  var last=data.dates[data.dates.length-1];
+  var fc=[],lo=[],hi=[],dts=[];
+  for(var k=1;k<=h;k++){
+    var mult=Math.pow(1+g,k/30);
+    var v=Math.max(0,base[k-1]*mult), w=1.645*sd*Math.sqrt(1+0.12*k)*mult;
+    fc.push(v);lo.push(Math.max(0,v-w));hi.push(v+w);dts.push(last+k*DAY);
+  }
+  // breach check on the weekly peak (max of any 7-day window) to ignore weekend dips
+  function firstBreach(arr,limit){
+    for(var i=0;i<arr.length;i++){
+      var mx=0;for(var j=Math.max(0,i-6);j<=i;j++)mx=Math.max(mx,arr[j]);
+      if(mx>=limit) return i;
+    }
+    return -1;
+  }
+  var bi=firstBreach(fc,cap*thr), ri=firstBreach(hi,cap*thr), fi=firstBreach(fc,cap);
+  var peak=Math.max.apply(null,fc), peakHi=Math.max.apply(null,hi);
+  var need=peak/0.7, rec=TIERS.filter(function(t){return t>=need})[0]||Math.ceil(need);
+  var cur=Math.max.apply(null,y.slice(-7));
+  view={fc:fc,lo:lo,hi:hi,dts:dts,cap:cap,thr:thr,acc:acc,params:model.p,sd:sd,
+        bi:bi,ri:ri,fi:fi,peak:peak,peakHi:peakHi,rec:rec,cur:cur,lead:lead,h:h,
+        growth:(model.t*30)};
+}
+
+/* ---------- rendering ---------- */
+function fmtDate(t){return new Date(t).toLocaleDateString(undefined,{day:"numeric",month:"short",year:"numeric"})}
+function fmt(n){return n>=100?n.toFixed(0):n.toFixed(1)}
+function css(n){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()}
+
+function render(){
+  var v=view, now=data.dates[data.dates.length-1];
+  var verdict=$("verdict"), cls="", title, body;
+  var orderBy=v.bi>=0?v.dts[v.bi]-v.lead*DAY:null;
+  if(v.bi<0){
+    title="No upgrade needed in the next "+v.h+" days";
+    body="Forecast peak reaches "+fmt(v.peak)+" Gbps ("+Math.round(v.peak/v.cap*100)+"% of "+v.cap+" Gbps). "+(v.ri>=0?"The upper range crosses the trigger around "+fmtDate(v.dts[v.ri])+", so keep watching.":"Even the upper range stays under the trigger.");
+    if(v.ri>=0)cls="warn";
+  }else{
+    var days=Math.round((v.dts[v.bi]-now)/DAY), late=orderBy<=now;
+    title="Hits "+Math.round(v.thr*100)+"% utilisation on "+fmtDate(v.dts[v.bi]);
+    body=(late?"The order date has already passed: start procurement now. ":"Place the order by "+fmtDate(orderBy)+" to be ready in time. ")+
+         "That is "+days+" days away. Recommended upgrade: "+v.rec+" Gbps.";
+    cls=late||days<60?"bad":"warn";
+  }
+  verdict.className="panel verdict "+cls;
+  verdict.innerHTML="<h2></h2><p></p>";
+  verdict.firstChild.textContent=title; verdict.lastChild.textContent=body;
+
+  var util=Math.round(v.cur/v.cap*100);
+  $("metrics").innerHTML=[
+    [util+"%","Current weekly peak ("+fmt(v.cur)+" Gbps)"],
+    [fmt(v.peak)+" Gbps","Forecast peak in "+v.h+" days"],
+    ["+"+fmt(v.growth)+" Gbps","Underlying growth per month"],
+    [v.acc.toFixed(1)+"%","Backtest error (MAPE, last 14 days)"],
+    [v.rec+" Gbps","Recommended capacity"]
+  ].map(function(m){return "<div class='metric'><b>"+m[0]+"</b><span>"+m[1]+"</span></div>"}).join("");
+
+  // plan table: monthly checkpoints
+  var rows="<tr><th>Date</th><th>Forecast peak</th><th>90% upper</th><th>Utilisation</th></tr>";
+  for(var d=30;d<=v.h;d+=Math.max(30,Math.round(v.h/6/30)*30)){
+    var i=d-1, mx=0,mh=0;
+    for(var j=Math.max(0,i-6);j<=i;j++){mx=Math.max(mx,v.fc[j]);mh=Math.max(mh,v.hi[j])}
+    var u=mx/v.cap*100, c=u>=100?"var(--cap)":u>=v.thr*100?"var(--warn)":"var(--ok)";
+    rows+="<tr><td>"+fmtDate(v.dts[i])+"</td><td>"+fmt(mx)+" Gbps</td><td>"+fmt(mh)+" Gbps</td><td style='color:"+c+";font-weight:700'>"+u.toFixed(0)+"%</td></tr>";
+  }
+  $("plan").innerHTML=rows;
+  draw();
+}
+
+var geo=null;
+function draw(){
+  var cv=$("chart"), dpr=window.devicePixelRatio||1;
+  var W=cv.clientWidth, H=cv.clientHeight;
+  cv.width=W*dpr; cv.height=H*dpr;
+  var c=cv.getContext("2d"); c.scale(dpr,dpr); c.clearRect(0,0,W,H);
+  var v=view, histN=Math.min(90,data.y.length), hy=data.y.slice(-histN), hd=data.dates.slice(-histN);
+  var L=46,R=14,T=12,B=28, pw=W-L-R, ph=H-T-B;
+  var t0=hd[0], t1=v.dts[v.dts.length-1];
+  var ymax=Math.max(v.cap*1.08, v.peakHi*1.05, Math.max.apply(null,hy)*1.05);
+  var X=function(t){return L+(t-t0)/(t1-t0)*pw}, Y=function(val){return T+ph-val/ymax*ph};
+  var ink=css("--ink"), muted=css("--muted"), line=css("--line");
+  c.font="12px "+css("--font"); c.fillStyle=muted; c.strokeStyle=line; c.lineWidth=1;
+  // grid
+  var step=Math.pow(10,Math.floor(Math.log10(ymax/4))); step*= ymax/4/step>=5?5:ymax/4/step>=2?2:1;
+  for(var g=0;g<=ymax;g+=step){c.beginPath();c.moveTo(L,Y(g));c.lineTo(W-R,Y(g));c.stroke();c.fillText(g,6,Y(g)+4)}
+  // x labels
+  for(var k=0;k<=4;k++){var t=t0+(t1-t0)*k/4;c.fillText(new Date(t).toLocaleDateString(undefined,{month:"short",day:"numeric"}),X(t)-16,H-8)}
+  // band
+  c.fillStyle=css("--band"); c.beginPath();
+  v.dts.forEach(function(t,i){i?c.lineTo(X(t),Y(v.hi[i])):c.moveTo(X(t),Y(v.hi[i]))});
+  for(var i=v.dts.length-1;i>=0;i--)c.lineTo(X(v.dts[i]),Y(v.lo[i]));
+  c.closePath();c.fill();
+  // thresholds
+  c.lineWidth=1.5;c.setLineDash([6,4]);
+  c.strokeStyle=css("--warn");c.beginPath();c.moveTo(L,Y(v.cap*v.thr));c.lineTo(W-R,Y(v.cap*v.thr));c.stroke();
+  c.setLineDash([]);c.strokeStyle=css("--cap");c.lineWidth=2;
+  c.beginPath();c.moveTo(L,Y(v.cap));c.lineTo(W-R,Y(v.cap));c.stroke();
+  // history
+  c.strokeStyle=css("--hist");c.lineWidth=1.6;c.beginPath();
+  hy.forEach(function(val,i){i?c.lineTo(X(hd[i]),Y(val)):c.moveTo(X(hd[i]),Y(val))});c.stroke();
+  // forecast
+  c.strokeStyle=css("--fc");c.lineWidth=2;c.beginPath();
+  c.moveTo(X(hd[hd.length-1]),Y(hy[hy.length-1]));
+  v.dts.forEach(function(t,i){c.lineTo(X(t),Y(v.fc[i]))});c.stroke();
+  // breach marker
+  if(v.bi>=0){var bx=X(v.dts[v.bi]);c.fillStyle=css("--warn");c.beginPath();c.arc(bx,Y(v.fc[v.bi]),5,0,7);c.fill();
+    c.fillStyle=ink;c.fillText("trigger "+fmtDate(v.dts[v.bi]),Math.min(bx-40,W-R-140),Y(v.cap*v.thr)-8)}
+  geo={L:L,R:R,pw:pw,t0:t0,t1:t1,X:X,Y:Y,hd:hd,hy:hy};
+}
+
+/* ---------- interaction ---------- */
+$("chart").addEventListener("mousemove",function(e){
+  if(!geo||!view)return;
+  var r=this.getBoundingClientRect(), x=e.clientX-r.left;
+  var t=geo.t0+(x-geo.L)/geo.pw*(geo.t1-geo.t0), tip=$("tip"), val, kind, dt;
+  var last=geo.hd[geo.hd.length-1];
+  if(t<geo.t0||t>geo.t1){tip.style.display="none";return}
+  if(t<=last){var i=Math.round((t-geo.hd[0])/DAY);i=Math.max(0,Math.min(i,geo.hy.length-1));val=geo.hy[i];dt=geo.hd[i];kind="actual"}
+  else{var j=Math.max(0,Math.min(view.fc.length-1,Math.round((t-last)/DAY)-1));val=view.fc[j];dt=view.dts[j];kind="forecast"}
+  tip.textContent=fmtDate(dt)+": "+fmt(val)+" Gbps ("+kind+")";
+  tip.style.display="block";tip.style.left=Math.min(x+12,r.width-190)+"px";tip.style.top="10px";
+});
+$("chart").addEventListener("mouseleave",function(){$("tip").style.display="none"});
+
+function setStatus(m){$("status").textContent=m}
+function load(){
+  var s=$("src").value;
+  $("pick").hidden=s!=="csv";
+  if(s==="csv"){ if(!data||data.fromCsv){} else {setStatus("Choose a CSV file to begin.")} if(!data||!data.fromCsv){return} }
+  else { data=generate(s); setStatus("Using generated sample data ("+data.y.length+" days)."); }
+  go();
+}
+function go(){try{analyse();render()}catch(e){setStatus(e.message)}}
+
+$("src").onchange=load;
+$("pick").onclick=function(){$("file").click()};
+$("file").onchange=function(){
+  var f=this.files[0]; if(!f)return;
+  var rd=new FileReader();
+  rd.onload=function(){
+    try{data=parseCSV(rd.result);data.fromCsv=true;setStatus("Loaded "+data.y.length+" days from "+f.name+".");go()}
+    catch(e){setStatus(e.message)}
+  };
+  rd.readAsText(f);
+};
+["cap","thr","hor","lead","scn"].forEach(function(id){
+  $(id).addEventListener("input",function(){
+    $("thrv").textContent=$("thr").value;$("horv").textContent=$("hor").value;
+    if(data&&+$("cap").value>0)go();
+  });
+});
+$("theme").onclick=function(){
+  var cur=document.documentElement.getAttribute("data-theme");
+  var dark=cur?cur==="dark":window.matchMedia("(prefers-color-scheme: dark)").matches;
+  document.documentElement.setAttribute("data-theme",dark?"light":"dark");
+  if(view)draw();
+};
+window.addEventListener("resize",function(){if(view)draw()});
+load();
+})();
+</script>
+</body>
+</html>
